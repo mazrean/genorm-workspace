@@ -1,0 +1,3 @@
+[submodule "genorm"]
+	path = genorm
+	url = git@github.com:mazrean/genorm.git

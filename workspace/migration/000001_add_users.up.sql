@@ -1,0 +1,5 @@
+CREATE TABLE `users` (
+  `id`  CHAR(36) PRIMARY KEY NOT NULL,
+  `name` VARCHAR(64) NOT NULL,
+  `password` CHAR(60) NOT NULL
+) ENGINE = InnoDB;
