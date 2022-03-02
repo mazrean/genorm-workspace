@@ -19,7 +19,7 @@ WORKDIR /app/genorm
 RUN go mod download
 COPY ./genorm/ ./
 
-RUN go build -buildvcs=false -o genorm ./cmd/
+RUN go build -buildvcs=false -o genorm ./cmd/genorm/
 
 WORKDIR /app/workspace
 
