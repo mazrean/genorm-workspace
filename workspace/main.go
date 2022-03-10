@@ -103,8 +103,9 @@ func migration(db *sql.DB) error {
 
 func runQuery(db *sql.DB) error {
 	userID := uuid.New()
-	affectedRows, err := orm.User().
-		Insert(&orm.UserTable{
+	affectedRows, err := genorm.
+		Insert(orm.User()).
+		Values(&orm.UserTable{
 			ID:       userID,
 			Name:     genorm.Wrap("user"),
 			Password: genorm.Wrap("password"),
@@ -117,8 +118,9 @@ func runQuery(db *sql.DB) error {
 
 	messageID1 := uuid.New()
 	messageID2 := uuid.New()
-	_, err = orm.Message().
-		Insert(&orm.MessageTable{
+	_, err = genorm.
+		Insert(orm.Message()).
+		Values(&orm.MessageTable{
 			ID:        messageID1,
 			UserID:    userID,
 			Content:   genorm.Wrap("hello"),
@@ -135,50 +137,90 @@ func runQuery(db *sql.DB) error {
 		return fmt.Errorf("failed to insert message: %w", err)
 	}
 
-	userValues, err := orm.User().
-		Select().
+	userValues, err := genorm.
+		Select(orm.User()).
 		Fields(user.Name, user.Password).
-		Where(genorm.EqConst(user.IDExpr, userID)).
-		Do(db)
+		Where(genorm.EqLit(user.IDExpr, userID)).
+		GetAll(db)
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
 	fmt.Println(userValues)
 
+	userValue, err := genorm.
+		Select(orm.User()).
+		Fields(user.Name, user.Password).
+		Where(genorm.EqLit(user.IDExpr, userID)).
+		Get(db)
+	if err != nil {
+		return fmt.Errorf("failed to select user: %w", err)
+	}
+	fmt.Println(userValue)
+
+	userNames, err := genorm.
+		Pluck(orm.User(), user.NameExpr).
+		Distinct().
+		GetAll(db)
+	if err != nil {
+		return fmt.Errorf("failed to select user: %w", err)
+	}
+	fmt.Println(userNames)
+
+	userName, err := genorm.
+		Pluck(orm.User(), user.NameExpr).
+		OrderBy(genorm.Desc, user.Name).
+		Where(genorm.EqLit(user.IDExpr, userID)).
+		Get(db)
+	if err != nil {
+		return fmt.Errorf("failed to select user: %w", err)
+	}
+	fmt.Println(userName)
+
+	userCountVals, err := genorm.
+		Pluck(orm.User(), genorm.Count(user.IDExpr, false)).
+		GroupBy(user.Name).
+		GetAll(db)
+	if err != nil {
+		return fmt.Errorf("failed to select user: %w", err)
+	}
+	for _, userCountVal := range userCountVals {
+		if userCount, ok := userCountVal.Val(); ok {
+			fmt.Println(userCount)
+		}
+	}
+
 	userIDColumn := orm.MessageUserParseExpr(user.ID)
 	messageUserIDColumn := orm.MessageUserParseExpr(message.UserID)
 	messageCreatedAtColumn := orm.MessageUserParseExpr(message.CreatedAt)
-	messageUserValues, err := orm.Message().
-		User().Join(genorm.Eq(userIDColumn, messageUserIDColumn)).
-		Select().
-		Where(
-			genorm.And(
-				genorm.EqConst(userIDColumn, userID),
-				genorm.GeqConst(messageCreatedAtColumn, genorm.Wrap(time.Now().Add(-time.Hour))),
-			),
-		).
-		Do(db)
+	messageUserValues, err := genorm.
+		Select(orm.Message().
+			User().Join(genorm.Eq(userIDColumn, messageUserIDColumn))).
+		Where(genorm.And(
+			genorm.EqLit(userIDColumn, userID),
+			genorm.GeqLit(messageCreatedAtColumn, genorm.Wrap(time.Now().Add(-time.Hour))),
+		)).
+		GetAll(db)
 	if err != nil {
 		return fmt.Errorf("failed to select message user: %w", err)
 	}
 	fmt.Println(messageUserValues)
 
-	affectedRows, err = orm.Message().
-		Update().
+	affectedRows, err = genorm.
+		Update(orm.Message()).
 		Set(
-			genorm.AssignConst(message.Content, genorm.Wrap("hello world")),
-			genorm.AssignConst(message.CreatedAt, genorm.Wrap(time.Now())),
+			genorm.AssignLit(message.Content, genorm.Wrap("hello world")),
+			genorm.AssignLit(message.CreatedAt, genorm.Wrap(time.Now())),
 		).
-		Where(genorm.EqConst(message.IDExpr, messageID1)).
+		Where(genorm.EqLit(message.IDExpr, messageID1)).
 		Do(db)
 	if err != nil {
 		return fmt.Errorf("failed to update: %w", err)
 	}
 	fmt.Println(affectedRows)
 
-	affectedRows, err = orm.Message().
-		Delete().
-		Where(genorm.EqConst(message.UserIDExpr, userID)).
+	affectedRows, err = genorm.
+		Delete(orm.Message()).
+		Where(genorm.EqLit(message.UserIDExpr, userID)).
 		Do(db)
 	if err != nil {
 		return fmt.Errorf("failed to delete: %w", err)

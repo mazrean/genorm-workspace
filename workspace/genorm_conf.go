@@ -1,7 +1,7 @@
 //go:build genorm
 // +build genorm
 
-//go:generate ../genorm/genorm -source=$GOFILE -destination=genorm -package=orm -module=github.com/mazrean/genorm-workspace/workspace/genorm
+//go:generate go run github.com/mazrean/genorm/cmd/genorm@latest -source=$GOFILE -destination=genorm -package=orm -module=github.com/mazrean/genorm-workspace/workspace/genorm
 
 package main
 
@@ -16,6 +16,7 @@ type User struct {
 	ID       uuid.UUID `genorm:"id"`
 	Name     string    `genorm:"name"`
 	Password string    `genorm:"password"`
+	Message  genorm.Ref[Message]
 }
 
 func (u *User) TableName() string {
