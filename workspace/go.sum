@@ -664,6 +664,8 @@ github.com/matttproud/golang_protobuf_extensions v1.0.1/go.mod h1:D8He9yQNgCq6Z5
 github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369/go.mod h1:BSXmuO+STAnVfrANrmjBb36TMTDstsz7MSK+HVaYKv4=
 github.com/mazrean/genorm v0.0.0-20220302020352-d75f678199b3 h1:KqQ70EeL0vXp3SJKBhejU79iiiVy04MwrEm0jl/zwsk=
 github.com/mazrean/genorm v0.0.0-20220302020352-d75f678199b3/go.mod h1:43z0hepKd/bJBU38NwWxm9o93dUG/UpCaJOhAisC7ec=
+github.com/mazrean/genorm v1.0.0 h1:IKjQ1qML6uxZ34maxGxiJ8Hqv/GDqJEeR1AAlmuOFp8=
+github.com/mazrean/genorm v1.0.0/go.mod h1:Ps1U4i9DjF1HgJh07ubQq3Bndel0+9txmE8mK7HVAO4=
 github.com/miekg/pkcs11 v1.0.3/go.mod h1:XsNlhZGX73bx86s2hdc/FuaLm2CPZJemRLMA+WTFxgs=
 github.com/mistifyio/go-zfs v2.1.2-0.20190413222219-f784269be439+incompatible/go.mod h1:8AuVvqP/mXw1px98n46wfvcGfQ4ci2FwoAjKYxuo3Z4=
 github.com/mitchellh/go-homedir v1.1.0/go.mod h1:SfyaCUpYCn1Vlf4IUYiD9fPX4A5wJrkLzIz1N1q0pr0=

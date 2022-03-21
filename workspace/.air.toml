@@ -7,7 +7,7 @@ tmp_dir = "tmp"
 
 [build]
 # Just plain old shell command. You could use `make` as well.
-cmd = "go generate ./genorm_conf.go && go build -o ./tmp/main ."
+cmd = "GOWORK=off go generate ./genorm_conf.go && go build -o ./tmp/main ."
 # Binary file yields from `cmd`.
 bin = "tmp/main"
 # debuggerを使いたい場合はfull_binをコメントアウト
