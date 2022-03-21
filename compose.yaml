@@ -3,17 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
-      DB_USERNAME: root
-      DB_PASSWORD: pass
-      DB_HOSTNAME: mariadb
-      DB_PORT: 3306
-      DB_DATABASE: genorm
     restart: always
     volumes:
       - ./workspace:/app/workspace
-  mariadb:
-    image: mariadb:10.8.2
-    environment:
-      MYSQL_ROOT_PASSWORD: pass
-      MYSQL_DATABASE: genorm

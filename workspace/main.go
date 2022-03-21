@@ -5,14 +5,18 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/database/mysql"
+	"github.com/golang-migrate/migrate/v4/database/postgres"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/google/uuid"
+	_ "github.com/lib/pq"
 	"github.com/mazrean/genorm"
 	orm "github.com/mazrean/genorm-workspace/workspace/genorm"
 	"github.com/mazrean/genorm-workspace/workspace/genorm/message"
@@ -21,13 +25,18 @@ import (
 )
 
 func main() {
-	db, err := openDatabase()
+	dbEnv, ok := os.LookupEnv("DB")
+	if !ok {
+		panic("DB is not set")
+	}
+
+	db, err := openDatabase(dbEnv)
 	if err != nil {
 		panic(err)
 	}
 	defer db.Close()
 
-	err = migration(db)
+	err = migration(dbEnv, db)
 	if err != nil {
 		panic(err)
 	}
@@ -38,7 +47,26 @@ func main() {
 	}
 }
 
-func openDatabase() (*sql.DB, error) {
+type wrappedDB struct {
+	*sql.DB
+}
+
+func (db *wrappedDB) QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error) {
+	log.Printf("query: %s\n", query)
+	return db.DB.QueryContext(ctx, query, args...)
+}
+
+func (db *wrappedDB) QueryRowContext(ctx context.Context, query string, args ...interface{}) *sql.Row {
+	log.Printf("query row: %s\n", query)
+	return db.DB.QueryRowContext(ctx, query, args...)
+}
+
+func (db *wrappedDB) ExecContext(ctx context.Context, query string, args ...interface{}) (sql.Result, error) {
+	log.Printf("exec: %s\n", query)
+	return db.DB.ExecContext(ctx, query, args...)
+}
+
+func openDatabase(dbEnv string) (*wrappedDB, error) {
 	user, ok := os.LookupEnv("DB_USERNAME")
 	if !ok {
 		return nil, errors.New("DB_USERNAME is not set")
@@ -64,30 +92,68 @@ func openDatabase() (*sql.DB, error) {
 		return nil, errors.New("DB_DATABASE is not set")
 	}
 
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Asia%%2FTokyo&charset=utf8mb4",
-		user,
-		pass,
-		host,
-		port,
-		database,
+	var (
+		db  *sql.DB
+		err error
 	)
+	switch dbEnv {
+	case "mysql":
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&loc=Asia%%2FTokyo&charset=utf8mb4",
+			user,
+			pass,
+			host,
+			port,
+			database,
+		)
 
-	db, err := sql.Open("mysql", dsn)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open database: %w", err)
+		db, err = sql.Open("mysql", dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
+	case "postgres":
+		dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+			host,
+			port,
+			user,
+			pass,
+			database,
+		)
+
+		db, err = sql.Open("postgres", dsn)
+		if err != nil {
+			return nil, fmt.Errorf("failed to open database: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unknown database: %s", dbEnv)
 	}
 
-	return db, nil
+	return &wrappedDB{
+		DB: db,
+	}, nil
 }
 
-func migration(db *sql.DB) error {
-	driver, err := mysql.WithInstance(db, &mysql.Config{})
-	if err != nil {
-		return fmt.Errorf("failed to create driver: %w", err)
+func migration(dbEnv string, db *wrappedDB) error {
+	var (
+		driver database.Driver
+		err    error
+	)
+	switch dbEnv {
+	case "mysql":
+		driver, err = mysql.WithInstance(db.DB, &mysql.Config{})
+		if err != nil {
+			return fmt.Errorf("failed to create driver: %w", err)
+		}
+	case "postgres":
+		driver, err = postgres.WithInstance(db.DB, &postgres.Config{})
+		if err != nil {
+			return fmt.Errorf("failed to create driver: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown database: %s", dbEnv)
 	}
 
 	m, err := migrate.NewWithDatabaseInstance(
-		"file://migration",
+		fmt.Sprintf("file://migration/%s", dbEnv),
 		"mysql",
 		driver,
 	)
@@ -103,7 +169,7 @@ func migration(db *sql.DB) error {
 	return nil
 }
 
-func runQuery(db *sql.DB) error {
+func runQuery(db *wrappedDB) error {
 	// INSERT INTO `users` (`id`, `name`, `created_at`) VALUES ({{uuid.New()}}, "name", {{time.Now()}})
 	affectedRows, err := genorm.
 		Insert(orm.User()).
@@ -116,6 +182,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert: %w", err)
 	}
+	log.Printf("affected rows: %d\n", affectedRows)
 
 	// INSERT INTO `users` (`id`, `name`) VALUES ({{uuid.New()}}, "name")
 	affectedRows, err = genorm.
@@ -129,6 +196,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert: %w", err)
 	}
+	log.Printf("affected rows: %d\n", affectedRows)
 
 	// INSERT INTO `users` (`id`, `name`, `created_at`) VALUES ({{uuid.New()}}, "name", {{time.Now()}})
 	affectedRows, err = genorm.
@@ -142,6 +210,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert: %w", err)
 	}
+	log.Printf("affected rows: %d\n", affectedRows)
 
 	userID := types.UserID(uuid.New())
 	affectedRows, err = genorm.
@@ -155,11 +224,11 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert user: %w", err)
 	}
-	fmt.Println(affectedRows, userID)
+	log.Printf("affected rows: %d\nuserID: %+v\n", affectedRows, userID)
 
 	messageID1 := types.MessageID(uuid.New())
 	messageID2 := types.MessageID(uuid.New())
-	_, err = genorm.
+	affectedRows, err = genorm.
 		Insert(orm.Message()).
 		Values(&orm.MessageTable{
 			ID:        messageID1,
@@ -177,6 +246,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to insert message: %w", err)
 	}
+	log.Printf("affected rows: %d\nmessageID1: %+v\nmessageID2: %+v\n", affectedRows, messageID1, messageID2)
 
 	// SELECT `id`, `name`, `created_at` FROM `users`
 	// userValues: []orm.UserTable
@@ -186,6 +256,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id`, `name`, `created_at` FROM `users`
 	// userValues: []orm.UserTable
@@ -195,6 +266,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` WHERE `id` = {{uuid.New()}}
 	// userValues: []orm.UserTable
@@ -205,6 +277,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `name`, `created_at` FROM `users`
 	// userValues: []orm.UserTable
@@ -215,7 +288,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
-	fmt.Println(userValues)
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` LIMIT 1
 	// userValue: orm.UserTable
@@ -225,6 +298,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValue: %+v\n", userValue)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` LIMIT 1
 	// userValue: orm.UserTable
@@ -234,7 +308,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
-	fmt.Println(userValue)
+	log.Printf("userValue: %+v\n", userValue)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` ORDER BY `created_at` DESC
 	// userValues: []orm.UserTable
@@ -245,6 +319,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` ORDER BY `created_at` DESC, `id` ASC
 	// userValues: []orm.UserTable
@@ -256,6 +331,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT DISTINCT `id`, `name`, `created_at` FROM `users`
 	// userValues: []orm.UserTable
@@ -266,6 +342,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` LIMIT 5 OFFSET 3
 	// userValues: []orm.UserTable
@@ -277,6 +354,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `name` FROM `users` GROUP BY `name` HAVING COUNT(`id`) > 10
 	// userValues: []orm.UserTable
@@ -289,6 +367,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id`, `name`, `created_at` FROM `users` FOR UPDATE
 	// userValues: []orm.UserTable
@@ -299,6 +378,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userValues: %+v\n", userValues)
 
 	// SELECT `id` FROM `users`
 	// userIDs: []uuid.UUID
@@ -308,7 +388,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
-	fmt.Println(userIDs)
+	log.Printf("userIDs: %+v\n", userIDs)
 
 	// SELECT `id` FROM `users` LIMIT 1
 	// userID: uuid.UUID
@@ -318,6 +398,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
+	log.Printf("userID: %+v\n", userID)
 
 	// SELECT `users`.`name`, `messages`.`content` FROM `users` INNER JOIN `messages` ON `users`.`id` = `messages`.`user_id`
 	// messageUserValues: []orm.MessageUserTable
@@ -333,7 +414,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
-	fmt.Println(messageUserValues)
+	log.Printf("messageUserValues: %+v\n", messageUserValues)
 
 	// UPDATE `users` SET `name`="name"
 	affectedRows, err = genorm.
@@ -345,6 +426,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// UPDATE `users` SET `name`="name"
 	affectedRows, err = genorm.
@@ -356,6 +438,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// UPDATE `users` SET `name`="name" WHERE `id`={{uuid.New()}}
 	affectedRows, err = genorm.
@@ -368,6 +451,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// UPDATE `users` SET `name`="name" ORDER BY `created_at` LIMIT 1
 	affectedRows, err = genorm.
@@ -381,7 +465,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to update user: %w", err)
 	}
-	fmt.Println(affectedRows)
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// DELETE FROM `users`
 	affectedRows, err = genorm.
@@ -390,6 +474,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// DELETE FROM `users`
 	affectedRows, err = genorm.
@@ -398,6 +483,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// DELETE FROM `users` WHERE `id`={{uuid.New()}}
 	affectedRows, err = genorm.
@@ -407,6 +493,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	// DELETE FROM `users` ORDER BY `created_at` LIMIT 1
 	affectedRows, err = genorm.
@@ -417,7 +504,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to delete user: %w", err)
 	}
-	fmt.Println(affectedRows)
+	log.Printf("affectedRows: %+v\n", affectedRows)
 
 	tx, _ := db.Begin()
 	// SELECT `id`, `name`, `created_at` FROM `users` FOR UPDATE
@@ -429,7 +516,7 @@ func runQuery(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("failed to select user: %w", err)
 	}
-	fmt.Println(userValues)
+	log.Printf("userValues: %+v\n", userValues)
 	_ = tx.Commit()
 
 	// SELECT * FROM `messages` WHERE `messages`.`id`=`messages`.`user_id`

@@ -1,4 +1,4 @@
-FROM golang:1.18rc1-alpine3.15
+FROM golang:1.18.0-alpine3.15
 
 RUN apk add --update --no-cache git
 
@@ -26,6 +26,3 @@ WORKDIR /app/workspace
 RUN go mod download
 
 COPY ./workspace/.air.toml ./.air.toml
-
-ENTRYPOINT ["dockerize", "-wait", "tcp://mariadb:3306", "-timeout", "5m", "air"]
-CMD ["-c", ".air.toml"]

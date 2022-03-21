@@ -1,0 +1,16 @@
+services:
+  app:
+    command: ["dockerize", "-wait", "tcp://db:5432", "-timeout", "5m", "air", "-c", ".air.toml"]
+    environment:
+      DB: postgres
+      DB_USERNAME: root
+      DB_PASSWORD: pass
+      DB_HOSTNAME: db
+      DB_PORT: 5432
+      DB_DATABASE: genorm
+  db:
+    image: postgres:14.2
+    environment:
+      POSTGRES_USER: root
+      POSTGRES_PASSWORD: pass
+      POSTGRES_DB: genorm
